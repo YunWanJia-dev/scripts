@@ -25,8 +25,19 @@ FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
 # 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 
+# ===== 输出当前系统 =====
+# 在安装依赖和下载 SDK 前输出系统信息，方便排查 CI 或容器环境问题。
+if [[ -f /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  echo "当前系统：${PRETTY_NAME:-${NAME:-unknown}}"
+else
+  echo "当前系统：$(uname -s)"
+fi
+echo "系统架构：$(uname -m)"
+
 # ===== 检查基础命令 =====
-# 在 Debian/Ubuntu 空环境中自动补齐 Flutter 构建需要的基础工具。
+# 在 Debian/Ubuntu 或 yum/dnf 系统的空环境中自动补齐 Flutter 构建需要的基础工具。
 missing_commands=()
 for command_name in git tar unzip xz zip awk sed; do
   command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
@@ -49,8 +60,30 @@ if [[ ${#missing_commands[@]} -gt 0 ]]; then
       unzip \
       xz-utils \
       zip
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y \
+      ca-certificates \
+      curl \
+      gawk \
+      git \
+      sed \
+      tar \
+      unzip \
+      xz \
+      zip
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y \
+      ca-certificates \
+      curl \
+      gawk \
+      git \
+      sed \
+      tar \
+      unzip \
+      xz \
+      zip
   else
-    echo "缺少基础命令：${missing_commands[*]}，且当前系统没有 apt-get，无法自动安装" >&2
+    echo "缺少基础命令：${missing_commands[*]}，且当前系统没有 apt-get、dnf 或 yum，无法自动安装" >&2
     exit 1
   fi
 fi
