@@ -3,6 +3,8 @@ set -euo pipefail
 
 # Flutter 项目自动环境准备和 Web 构建脚本
 #
+# 适用于 Cloudflare Pages / CI 环境。
+#
 # 可用环境变量：
 #   PROJECT_ROOT        Flutter 项目根目录；默认自动识别 pubspec.yaml 所在目录。
 #   FLUTTER_GIT_URL     Flutter SDK Git 仓库地址，默认为官方仓库。
@@ -14,10 +16,8 @@ set -euo pipefail
 
 # ===== 基础配置 =====
 
-# 当前脚本所在目录，例如：项目根目录/scripts
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 
-# 自动识别 Flutter 项目根目录
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
   PROJECT_ROOT="$(cd -- "$PROJECT_ROOT" >/dev/null 2>&1 && pwd -P)"
 elif [[ -f "${SCRIPT_DIR}/pubspec.yaml" ]]; then
@@ -35,9 +35,7 @@ FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
 FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
 
-# 关键修复：
-# 不要把 BUILD_HOME / PUB_CACHE 放在仓库目录里。
-# Cloudflare Pages 的仓库目录可能位于 /dev/shm/repo/...，pub 在那里 chmod 会失败。
+# 不要放在仓库目录中，避免 /dev/shm/repo/... 权限问题
 BUILD_HOME="${BUILD_HOME:-/tmp/flutter-build-home}"
 PUB_CACHE="${PUB_CACHE:-/tmp/pub-cache}"
 
@@ -62,6 +60,11 @@ command -v git >/dev/null 2>&1 || {
   exit 1
 }
 
+command -v ln >/dev/null 2>&1 || {
+  echo "错误：缺少 ln 命令，无法创建 chmod 兼容命令。" >&2
+  exit 1
+}
+
 # ===== 配置构建缓存目录 =====
 
 mkdir -p "$BUILD_HOME"
@@ -72,12 +75,47 @@ export HOME="$BUILD_HOME"
 export PUB_CACHE="$PUB_CACHE"
 export FLUTTER_SUPPRESS_ANALYTICS=true
 export DART_SUPPRESS_ANALYTICS=true
+export CI=true
 
 # 清理上次失败可能留下的 pub 临时目录
 rm -rf "${PUB_CACHE}/_temp"
 
-# 检查目录是否真的支持 chmod
-check_chmod_supported() {
+echo "构建 HOME：${HOME}"
+echo "Pub 缓存：${PUB_CACHE}"
+echo "Flutter SDK 目录：${FLUTTER_SDK_DIR}"
+echo "Flutter 分支：${FLUTTER_GIT_BRANCH}"
+
+# ===== Cloudflare Pages chmod 兼容处理 =====
+#
+# 某些 Pages 构建环境中，/dev/shm 和 /tmp 都可能不允许 chmod。
+# Dart pub 下载依赖后会调用 subprocess chmod。
+# 这里把 PATH 前置一个 chmod 兼容命令，让 pub 调用 chmod 时直接成功返回。
+#
+# 注意：
+#   这里不用创建 shell 脚本，因为当前文件系统可能无法 chmod +x。
+#   使用符号链接指向系统 true 命令，避免执行权限问题。
+
+install_chmod_compat() {
+  local compat_bin="${BUILD_HOME}/bin"
+  local true_bin
+
+  true_bin="$(command -v true || true)"
+
+  if [[ -z "$true_bin" ]]; then
+    echo "错误：找不到 true 命令，无法创建 chmod 兼容命令。" >&2
+    exit 1
+  fi
+
+  mkdir -p "$compat_bin"
+  ln -sf "$true_bin" "${compat_bin}/chmod"
+
+  export PATH="${compat_bin}:${PATH}"
+  hash -r || true
+
+  echo "已启用 chmod 兼容命令：${compat_bin}/chmod -> ${true_bin}"
+}
+
+test_chmod() {
   local dir="$1"
   local label="$2"
   local test_file="${dir}/.chmod-test-$$"
@@ -85,30 +123,34 @@ check_chmod_supported() {
   mkdir -p "$dir"
   : >"$test_file"
 
-  if ! chmod 755 "$test_file" >/dev/null 2>&1; then
+  if chmod 755 "$test_file" >/dev/null 2>&1; then
     rm -f "$test_file"
-    echo "错误：${label} 不支持 chmod：${dir}" >&2
-    echo "请不要把 BUILD_HOME 或 PUB_CACHE 放在 /dev/shm 或仓库目录下。" >&2
-    echo "建议使用：BUILD_HOME=/tmp/flutter-build-home PUB_CACHE=/tmp/pub-cache" >&2
-    exit 1
+    echo "${label} 支持 chmod：${dir}"
+    return 0
+  else
+    rm -f "$test_file"
+    echo "警告：${label} 不支持 chmod：${dir}" >&2
+    return 1
   fi
-
-  rm -f "$test_file"
 }
 
-check_chmod_supported "$BUILD_HOME" "BUILD_HOME"
-check_chmod_supported "$PUB_CACHE" "PUB_CACHE"
+if ! test_chmod "$BUILD_HOME" "BUILD_HOME"; then
+  install_chmod_compat
+fi
 
-echo "构建 HOME：${HOME}"
-echo "Pub 缓存：${PUB_CACHE}"
-echo "Flutter SDK 目录：${FLUTTER_SDK_DIR}"
-echo "Flutter 分支：${FLUTTER_GIT_BRANCH}"
+# 安装兼容 chmod 后，再测一次 PUB_CACHE。
+# 此时即使真实文件系统不支持 chmod，pub 调用 chmod 也会得到成功返回。
+if ! test_chmod "$PUB_CACHE" "PUB_CACHE"; then
+  install_chmod_compat
+fi
+
+echo "当前 chmod：$(command -v chmod)"
 
 # ===== 准备 Flutter SDK =====
 
-if [[ ! -x "$FLUTTER_BIN" ]]; then
+if [[ ! -f "$FLUTTER_BIN" ]]; then
   if [[ -e "$FLUTTER_SDK_DIR" ]]; then
-    echo "Flutter SDK 目录已存在，但 ${FLUTTER_BIN} 不可执行。" >&2
+    echo "Flutter SDK 目录已存在，但 ${FLUTTER_BIN} 不存在。" >&2
     echo "将删除该临时目录并重新克隆：${FLUTTER_SDK_DIR}" >&2
     rm -rf "$FLUTTER_SDK_DIR"
   fi
@@ -118,14 +160,26 @@ fi
 
 # ===== 配置 Git 安全目录 =====
 
-git config --global --add safe.directory "$FLUTTER_SDK_DIR"
-git config --global --add safe.directory "$PROJECT_ROOT"
+git config --global --add safe.directory "$FLUTTER_SDK_DIR" || true
+git config --global --add safe.directory "$PROJECT_ROOT" || true
+
+# ===== Flutter 命令封装 =====
+#
+# 如果当前文件系统没有给 bin/flutter 执行权限，则用 bash 直接运行它。
+
+flutter_cmd() {
+  if [[ -x "$FLUTTER_BIN" ]]; then
+    "$FLUTTER_BIN" "$@"
+  else
+    bash "$FLUTTER_BIN" "$@"
+  fi
+}
 
 # ===== 使用绝对路径构建 Web =====
 
 cd "$PROJECT_ROOT"
 
-"$FLUTTER_BIN" --version
-"$FLUTTER_BIN" config --enable-web
-"$FLUTTER_BIN" pub get
-"$FLUTTER_BIN" build web --release
+flutter_cmd --version
+flutter_cmd config --enable-web
+flutter_cmd pub get
+flutter_cmd build web --release
