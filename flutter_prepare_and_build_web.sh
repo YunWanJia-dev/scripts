@@ -8,6 +8,8 @@ set -euo pipefail
 #   FLUTTER_GIT_BRANCH  Flutter SDK Git 分支，默认为 stable。
 #   FLUTTER_TMP_ROOT    Flutter SDK 默认克隆目录的上级目录，默认为 /tmp。
 #   FLUTTER_SDK_DIR     已有或目标 Flutter SDK 目录；若 bin/flutter 存在，则跳过克隆。
+#   BUILD_HOME          构建时使用的 HOME 目录，默认为 /tmp/flutter-build-home。
+#   PUB_CACHE           Dart/Flutter pub 缓存目录，默认为 BUILD_HOME/.pub-cache。
 
 # ===== 基础配置 =====
 FLUTTER_GIT_URL="${FLUTTER_GIT_URL:-https://github.com/flutter/flutter.git}"
@@ -15,6 +17,7 @@ FLUTTER_GIT_BRANCH="${FLUTTER_GIT_BRANCH:-stable}"
 FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
 FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
+BUILD_HOME="${BUILD_HOME:-${FLUTTER_TMP_ROOT}/flutter-build-home}"
 
 # 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
@@ -33,6 +36,18 @@ echo "系统架构：$(uname -m)"
 # ===== 检查基础命令 =====
 # Pages 环境通常没有 root 权限，所以这里只检查，不尝试安装系统依赖。
 command -v git >/dev/null 2>&1 || { echo "缺少 git 命令，无法克隆 Flutter SDK" >&2; exit 1; }
+
+# ===== 配置构建缓存目录 =====
+# Pages 环境中的默认 HOME 可能在 /dev/shm 下，pub 执行 chmod 时容易遇到权限限制。
+# 这里把 HOME 和 PUB_CACHE 放到可写的临时目录中，避免使用 /dev/shm/home/.pub-cache。
+mkdir -p "$BUILD_HOME"
+export HOME="$BUILD_HOME"
+export PUB_CACHE="${PUB_CACHE:-${HOME}/.pub-cache}"
+export FLUTTER_SUPPRESS_ANALYTICS=true
+export DART_SUPPRESS_ANALYTICS=true
+mkdir -p "$PUB_CACHE"
+echo "构建 HOME：${HOME}"
+echo "Pub 缓存：${PUB_CACHE}"
 
 # ===== 准备 Flutter SDK =====
 # 如果指定的 SDK 目录中还没有可用的 Flutter，则通过 Git 克隆官方 stable 分支。
