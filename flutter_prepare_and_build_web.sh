@@ -17,7 +17,6 @@ FLUTTER_DOWNLOAD_URL="${FLUTTER_DOWNLOAD_URL:-}"
 
 # Flutter 会被下载并解压到 /tmp 下，不污染系统环境。
 FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
-FLUTTER_ARCHIVE="${FLUTTER_TMP_ROOT}/flutter-sdk.tar.xz"
 FLUTTER_RELEASES_FILE="${FLUTTER_TMP_ROOT}/flutter-releases-linux.json"
 FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
@@ -37,20 +36,30 @@ fi
 echo "系统架构：$(uname -m)"
 
 # ===== 检查基础命令 =====
-# 在 Debian/Ubuntu 或 yum/dnf 系统的空环境中自动补齐 Flutter 构建需要的基础工具。
+# 在 Debian/Ubuntu 或 yum/dnf/microdnf 系统的空环境中自动补齐 Flutter 构建需要的基础工具。
+CURL_BIN="$(command -v curl || true)"
+WGET_BIN="$(command -v wget || true)"
+APT_GET_BIN="$(command -v apt-get || true)"
+DNF_BIN="$(command -v dnf || true)"
+YUM_BIN="$(command -v yum || true)"
+MICRODNF_BIN="$(command -v microdnf || true)"
+
 missing_commands=()
-for command_name in git tar unzip xz zip awk sed; do
+for command_name in git tar unzip zip awk sed; do
   command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
 done
 
-if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+if [[ ! -x "$CURL_BIN" && ! -x "$WGET_BIN" ]]; then
   missing_commands+=("curl 或 wget")
 fi
 
 if [[ ${#missing_commands[@]} -gt 0 ]]; then
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  if [[ -x "$APT_GET_BIN" ]]; then
+    if ! "$APT_GET_BIN" update; then
+      echo "警告：apt-get update 失败，将继续尝试后续步骤" >&2
+    fi
+
+    if ! DEBIAN_FRONTEND=noninteractive "$APT_GET_BIN" install -y \
       ca-certificates \
       curl \
       gawk \
@@ -58,10 +67,11 @@ if [[ ${#missing_commands[@]} -gt 0 ]]; then
       sed \
       tar \
       unzip \
-      xz-utils \
-      zip
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y \
+      zip; then
+      echo "警告：apt-get install 失败，将继续尝试后续步骤" >&2
+    fi
+  elif [[ -x "$DNF_BIN" ]]; then
+    if ! "$DNF_BIN" install -y \
       ca-certificates \
       curl \
       gawk \
@@ -69,10 +79,11 @@ if [[ ${#missing_commands[@]} -gt 0 ]]; then
       sed \
       tar \
       unzip \
-      xz \
-      zip
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y \
+      zip; then
+      echo "警告：dnf install 失败，将继续尝试后续步骤" >&2
+    fi
+  elif [[ -x "$YUM_BIN" ]]; then
+    if ! "$YUM_BIN" install -y \
       ca-certificates \
       curl \
       gawk \
@@ -80,13 +91,29 @@ if [[ ${#missing_commands[@]} -gt 0 ]]; then
       sed \
       tar \
       unzip \
-      xz \
-      zip
+      zip; then
+      echo "警告：yum install 失败，将继续尝试后续步骤" >&2
+    fi
+  elif [[ -x "$MICRODNF_BIN" ]]; then
+    if ! "$MICRODNF_BIN" install -y \
+      ca-certificates \
+      curl \
+      gawk \
+      git \
+      sed \
+      tar \
+      unzip \
+      zip; then
+      echo "警告：microdnf install 失败，将继续尝试后续步骤" >&2
+    fi
   else
-    echo "缺少基础命令：${missing_commands[*]}，且当前系统没有 apt-get、dnf 或 yum，无法自动安装" >&2
-    exit 1
+    echo "警告：缺少基础命令：${missing_commands[*]}，且当前系统没有可用的 apt-get、dnf、yum 或 microdnf，将继续尝试后续步骤" >&2
   fi
 fi
+
+# 如果上一步安装了 curl 或 wget，刷新下载命令路径。
+CURL_BIN="$(command -v curl || true)"
+WGET_BIN="$(command -v wget || true)"
 
 # ===== 下载 Flutter SDK =====
 # 如果指定的 SDK 目录中还没有可用的 Flutter，则下载并解压到该目录的上级目录。
@@ -101,10 +128,10 @@ if [[ ! -x "$FLUTTER_BIN" ]]; then
   # ===== 解析最新 stable 下载地址 =====
   # 未配置 FLUTTER_DOWNLOAD_URL 时，从 Flutter 官方 Linux releases 元数据中读取 current_release.stable。
   if [[ -z "$FLUTTER_DOWNLOAD_URL" ]]; then
-    if command -v curl >/dev/null 2>&1; then
-      curl --fail --location --show-error --progress-bar "$FLUTTER_RELEASES_URL" --output "$FLUTTER_RELEASES_FILE"
-    elif command -v wget >/dev/null 2>&1; then
-      wget --output-document="$FLUTTER_RELEASES_FILE" "$FLUTTER_RELEASES_URL"
+    if [[ -x "$CURL_BIN" ]]; then
+      "$CURL_BIN" --fail --location --show-error --progress-bar "$FLUTTER_RELEASES_URL" --output "$FLUTTER_RELEASES_FILE"
+    elif [[ -x "$WGET_BIN" ]]; then
+      "$WGET_BIN" --output-document="$FLUTTER_RELEASES_FILE" "$FLUTTER_RELEASES_URL"
     else
       echo "缺少 curl 或 wget，无法下载 Flutter releases 元数据" >&2
       exit 1
@@ -132,10 +159,10 @@ if [[ ! -x "$FLUTTER_BIN" ]]; then
     FLUTTER_DOWNLOAD_URL="${FLUTTER_RELEASES_BASE_URL}/${FLUTTER_STABLE_ARCHIVE}"
   fi
 
-  if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --show-error --progress-bar "$FLUTTER_DOWNLOAD_URL" --output "$FLUTTER_ARCHIVE"
-  elif command -v wget >/dev/null 2>&1; then
-    wget --output-document="$FLUTTER_ARCHIVE" "$FLUTTER_DOWNLOAD_URL"
+  if [[ -x "$CURL_BIN" ]]; then
+    "$CURL_BIN" --fail --location --show-error --progress-bar "$FLUTTER_DOWNLOAD_URL" --output "$FLUTTER_ARCHIVE"
+  elif [[ -x "$WGET_BIN" ]]; then
+    "$WGET_BIN" --output-document="$FLUTTER_ARCHIVE" "$FLUTTER_DOWNLOAD_URL"
   else
     echo "缺少 curl 或 wget，无法下载 Flutter SDK" >&2
     exit 1
