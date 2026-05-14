@@ -170,7 +170,17 @@ if [[ ! -x "$FLUTTER_BIN" ]]; then
 
   # ===== 解压 Flutter SDK =====
   mkdir -p "$(dirname "$FLUTTER_SDK_DIR")"
-  tar -xJf "$FLUTTER_ARCHIVE" -C "$(dirname "$FLUTTER_SDK_DIR")"
+  case "$FLUTTER_ARCHIVE" in
+    *.tar.xz)
+      tar -xJf "$FLUTTER_ARCHIVE" -C "$(dirname "$FLUTTER_SDK_DIR")"
+      ;;
+    *.tar.gz)
+      tar -xzf "$FLUTTER_ARCHIVE" -C "$(dirname "$FLUTTER_SDK_DIR")"
+      ;;
+    *.zip)
+      unzip -q "$FLUTTER_ARCHIVE" -d "$(dirname "$FLUTTER_SDK_DIR")"
+      ;;
+  esac
   rm -f "$FLUTTER_ARCHIVE"
 fi
 
