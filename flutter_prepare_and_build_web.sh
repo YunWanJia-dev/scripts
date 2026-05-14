@@ -20,6 +20,7 @@ FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
 FLUTTER_RELEASES_FILE="${FLUTTER_TMP_ROOT}/flutter-releases-linux.json"
 FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
+FLUTTER_ARCHIVE="${FLUTTER_TMP_ROOT}/flutter-sdk.tar.xz"
 
 # 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
