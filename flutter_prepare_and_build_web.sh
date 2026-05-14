@@ -17,7 +17,7 @@ FLUTTER_GIT_BRANCH="${FLUTTER_GIT_BRANCH:-stable}"
 FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
 FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
-BUILD_HOME="${BUILD_HOME:-${FLUTTER_TMP_ROOT}/flutter-build-home}"
+BUILD_HOME="${BUILD_HOME:-${SCRIPT_DIR}/.flutter-build-home}"
 
 # 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
@@ -38,14 +38,32 @@ echo "系统架构：$(uname -m)"
 command -v git >/dev/null 2>&1 || { echo "缺少 git 命令，无法克隆 Flutter SDK" >&2; exit 1; }
 
 # ===== 配置构建缓存目录 =====
-# Pages 环境中的默认 HOME 可能在 /dev/shm 下，pub 执行 chmod 时容易遇到权限限制。
-# 这里把 HOME 和 PUB_CACHE 放到可写的临时目录中，避免使用 /dev/shm/home/.pub-cache。
+# Pages 环境中的默认 HOME 或 /tmp 可能不支持 pub 执行 chmod。
+# 这里把 HOME 和 PUB_CACHE 放到项目目录中，并在必要时提供 chmod 兼容命令。
 mkdir -p "$BUILD_HOME"
 export HOME="$BUILD_HOME"
 export PUB_CACHE="${PUB_CACHE:-${HOME}/.pub-cache}"
 export FLUTTER_SUPPRESS_ANALYTICS=true
 export DART_SUPPRESS_ANALYTICS=true
 mkdir -p "$PUB_CACHE"
+
+CHMOD_TEST_FILE="${PUB_CACHE}/.chmod-test"
+: >"$CHMOD_TEST_FILE"
+if ! chmod 755 "$CHMOD_TEST_FILE" >/dev/null 2>&1; then
+  BUILD_BIN="${BUILD_HOME}/bin"
+  TRUE_BIN="$(command -v true || true)"
+  mkdir -p "$BUILD_BIN"
+
+  if [[ -n "$TRUE_BIN" ]]; then
+    ln -sf "$TRUE_BIN" "${BUILD_BIN}/chmod"
+    export PATH="${BUILD_BIN}:${PATH}"
+    echo "警告：当前环境不允许对 Pub 缓存执行 chmod，已启用 chmod 兼容命令" >&2
+  else
+    echo "警告：当前环境不允许对 Pub 缓存执行 chmod，且找不到 true 命令，pub 可能仍会失败" >&2
+  fi
+fi
+rm -f "$CHMOD_TEST_FILE"
+
 echo "构建 HOME：${HOME}"
 echo "Pub 缓存：${PUB_CACHE}"
 
