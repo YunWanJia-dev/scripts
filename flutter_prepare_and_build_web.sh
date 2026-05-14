@@ -12,6 +12,10 @@ set -euo pipefail
 #   PUB_CACHE           Dart/Flutter pub 缓存目录，默认为 BUILD_HOME/.pub-cache。
 
 # ===== 基础配置 =====
+
+# 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
 FLUTTER_GIT_URL="${FLUTTER_GIT_URL:-https://github.com/flutter/flutter.git}"
 FLUTTER_GIT_BRANCH="${FLUTTER_GIT_BRANCH:-stable}"
 FLUTTER_TMP_ROOT="${FLUTTER_TMP_ROOT:-/tmp}"
@@ -19,8 +23,7 @@ FLUTTER_SDK_DIR="${FLUTTER_SDK_DIR:-${FLUTTER_TMP_ROOT}/flutter}"
 FLUTTER_BIN="${FLUTTER_SDK_DIR}/bin/flutter"
 BUILD_HOME="${BUILD_HOME:-${SCRIPT_DIR}/.flutter-build-home}"
 
-# 获取当前脚本所在目录，后续始终在项目根目录中执行构建。
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+
 
 # ===== 输出当前系统 =====
 # 在准备 SDK 前输出系统信息，方便排查 CI 或 Pages 环境问题。
