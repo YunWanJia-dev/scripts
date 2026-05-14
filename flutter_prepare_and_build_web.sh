@@ -20,6 +20,10 @@ set -euo pipefail
 
 # ===== 基础配置 =====
 
+cat > .env <<EOF
+API_BASE_URL=$API_BASE_URL
+EOF
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
 
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
